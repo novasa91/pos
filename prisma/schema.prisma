@@ -1,0 +1,741 @@
+// POS Cloud — Multi-tenant POS SaaS schema
+// Dev: SQLite (zero-config, instant run)
+// Prod: switch provider to "postgresql" and point to Neon
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============== Auth (NextAuth + Credentials + Google) ==============
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  hashedPassword String?
+  name           String?
+  phone          String?
+  locale         String    @default("th")
+  image          String?
+  emailVerified  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  memberships   UserOnTenant[]
+  ownedTenants  Tenant[]       @relation("TenantOwner")
+  accounts      Account[]
+  sessions      Session[]
+  sales         Sale[]
+  returns       SaleReturn[]
+  shifts        Shift[]
+  purchases     Purchase[]
+  auditLogs     AuditLog[]
+  sentInvites   Invitation[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============== Tenant (Shop) ==============
+
+model Tenant {
+  id            String  @id @default(cuid())
+  slug          String  @unique
+  name          String
+  address       String?
+  phone         String?
+  email         String?
+  taxId         String?
+  logoUrl       String?
+  currency      String  @default("THB")
+  timezone      String  @default("Asia/Bangkok")
+  locale        String  @default("th")
+  vatRate       Float   @default(7.0)
+  vatEnabled    Boolean @default(false)
+  vatInclusive  Boolean @default(false)
+  receiptHeader String?
+  receiptFooter String?
+  lineNotifyToken String?
+  lineNotifyEnabled Boolean @default(false)
+  promptpayPhone String? // เบอร์โทรศัพท์สำหรับ PromptPay (10 หลัก หรือ 13 หลัก tax ID)
+  promptpayName String? // ชื่อบัญชี PromptPay (ไม่บังคับ)
+  tableCount Int @default(0) // จำนวนโต๊ะทั้งหมด (สำหรับสร้าง QR ต่อโต๊ะ)
+  ownerId       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner         User                  @relation("TenantOwner", fields: [ownerId], references: [id])
+  members       UserOnTenant[]
+  subscription  Subscription?
+  categories    Category[]
+  products      Product[]
+  customers     Customer[]
+  sales         Sale[]
+  saleReturns   SaleReturn[]
+  orders        Order[]
+  tables        Table[]
+  employees     Employee[]
+  stations      Station[]
+  promotions    Promotion[]
+  loyaltyMembers Member[]
+  inventoryLots InventoryLot[]
+  shifts        Shift[]
+  suppliers     Supplier[]
+  purchases     Purchase[]
+  taxes         Tax[]
+  discounts     Discount[]
+  auditLogs     AuditLog[]
+  invitations   Invitation[]
+
+  @@index([slug])
+  @@map("tenants")
+}
+
+model UserOnTenant {
+  id        String   @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      String   @default("CASHIER") // OWNER | MANAGER | CASHIER
+  pin       String? // For quick POS login (hashed)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@map("user_on_tenant")
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  tenantId    String
+  email       String
+  role        String    @default("CASHIER")
+  token       String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation(fields: [invitedById], references: [id])
+
+  @@index([tenantId])
+  @@map("invitations")
+}
+
+// ============== Subscription ==============
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  tenantId               String    @unique
+  plan                   String    @default("STANDARD")
+  status                 String    @default("TRIALING") // TRIALING | ACTIVE | PAST_DUE | CANCELED | EXPIRED
+  provider               String? // STRIPE | OMISE
+  providerSubscriptionId String?
+  providerCustomerId     String?
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  trialEndsAt            DateTime?
+  cancelAtPeriodEnd      Boolean   @default(false)
+  canceledAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  tenant   Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments SubscriptionPayment[]
+
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model SubscriptionPayment {
+  id                String   @id @default(cuid())
+  subscriptionId    String
+  provider          String
+  providerPaymentId String?
+  amount            Float
+  currency          String   @default("THB")
+  status            String // SUCCEEDED | FAILED | PENDING
+  createdAt         DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("subscription_payments")
+}
+
+// ============== Catalog ==============
+
+model Category {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  color     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@index([tenantId])
+  @@map("categories")
+}
+
+model Product {
+  id                String   @id @default(cuid())
+  tenantId          String
+  sku               String?
+  barcode           String?
+  name              String
+  description       String?
+  price             Float
+  cost              Float    @default(0)
+  stock             Int      @default(0)
+  lowStockThreshold Int      @default(5)
+  categoryId        String?
+  imageUrl          String?
+  isActive          Boolean  @default(true)
+  trackStock        Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category      Category?      @relation(fields: [categoryId], references: [id])
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+  station       Station?       @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  stationId     String?
+  lots          InventoryLot[]
+
+  @@index([tenantId])
+  @@index([tenantId, barcode])
+  @@index([tenantId, sku])
+  @@index([tenantId, name])
+  @@map("products")
+}
+
+// ============== CRM ==============
+
+model Customer {
+  id          String    @id @default(cuid())
+  tenantId    String
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  points      Int       @default(0)
+  totalSpent  Float     @default(0)
+  visitCount  Int       @default(0)
+  lastVisitAt DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales  Sale[]
+
+  @@index([tenantId])
+  @@index([tenantId, phone])
+  @@index([tenantId, name])
+  @@map("customers")
+}
+
+// ============== Shifts ==============
+
+model Shift {
+  id           String    @id @default(cuid())
+  tenantId     String
+  userId       String
+  openingCash  Float     @default(0)
+  closingCash  Float?
+  expectedCash Float?
+  cashSales    Float     @default(0)
+  totalSales   Float     @default(0)
+  status       String    @default("OPEN") // OPEN | CLOSED
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime?
+  notes        String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+  sales  Sale[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([userId])
+  @@map("shifts")
+}
+
+// ============== Sales ==============
+
+model Sale {
+  id         String   @id @default(cuid())
+  tenantId   String
+  shiftId    String?
+  userId     String
+  customerId String?
+  receiptNo  String
+  subtotal   Float
+  discount   Float    @default(0)
+  tax        Float    @default(0)
+  total      Float
+  paid       Float    @default(0)
+  change     Float    @default(0)
+  status     String   @default("COMPLETED") // COMPLETED | RETURNED | PARTIAL_RETURN
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shift    Shift?        @relation(fields: [shiftId], references: [id])
+  user     User          @relation(fields: [userId], references: [id])
+  customer Customer?     @relation(fields: [customerId], references: [id])
+  items    SaleItem[]
+  payments SalePayment[]
+  returns  SaleReturn[]
+
+  @@unique([tenantId, receiptNo])
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@index([customerId])
+  @@map("sales")
+}
+
+model SaleItem {
+  id          String  @id @default(cuid())
+  saleId      String
+  productId   String?
+  productName String
+  sku         String?
+  price       Float
+  quantity    Float
+  discount    Float   @default(0)
+  total       Float
+
+  sale        Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id])
+  returnItems ReturnItem[]
+
+  @@index([saleId])
+  @@map("sale_items")
+}
+
+model SalePayment {
+  id               String   @id @default(cuid())
+  saleId           String
+  method           String // CASH | CARD | TRANSFER | PROMPTPAY | OTHER
+  amount           Float
+  reference        String?
+  providerChargeId String?
+  createdAt        DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("sale_payments")
+}
+
+model SaleReturn {
+  id        String   @id @default(cuid())
+  tenantId  String
+  saleId    String
+  userId    String
+  total     Float
+  reason    String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale   Sale        @relation(fields: [saleId], references: [id])
+  user   User        @relation(fields: [userId], references: [id])
+  items  ReturnItem[]
+
+  @@index([tenantId, createdAt])
+  @@map("sale_returns")
+}
+
+model ReturnItem {
+  id         String @id @default(cuid())
+  returnId   String
+  saleItemId String
+  quantity   Float
+  refund     Float
+
+  return_  SaleReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleItem SaleItem   @relation(fields: [saleItemId], references: [id])
+
+  @@index([returnId])
+  @@map("return_items")
+}
+
+// ============== Tables (จัดการโต๊ะ) ==============
+
+model Table {
+  id        String   @id @default(cuid())
+  tenantId  String
+  number    String   // เลขโต๊ะ เช่น "1", "A1", "B2"
+  name      String?  // ชื่อโต๊ะ (optional)
+  capacity  Int      @default(4)
+  status    String   @default("AVAILABLE") // AVAILABLE | OCCUPIED | RESERVED
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId])
+  @@index([status])
+  @@map("tables")
+}
+
+// ============== Employees (PIN-based staff login) ==============
+
+model Employee {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  nickname  String?
+  role      String   // OWNER | MANAGER | CASHIER | KITCHEN
+  pin       String   // 4-6 digit PIN (hashed)
+  phone     String?
+  email     String?
+  active    Boolean  @default(true)
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([active])
+  @@map("employees")
+}
+
+// ============== Product Stations (KDS routing) ==============
+
+model Station {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String   // "ข้าว", "ปลาดิบ", "ทอด", "หวาน", "เครื่องดื่ม"
+  code      String   // "RICE" | "SASHIMI" | "FRIED" | "DESSERT" | "DRINK"
+  color     String   @default("#7c3aed")
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product[]
+  items   OrderItem[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("stations")
+}
+
+// ============== Promotions ==============
+
+model Promotion {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  type        String   // PERCENT | FIXED | BUNDLE
+  value       Float    // % หรือ บาท
+  minSpend    Float    @default(0)
+  code        String?  // โค้ดส่วนลด optional
+  startDate   DateTime?
+  endDate     DateTime?
+  maxUses     Int?
+  usedCount   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  redemptions PromotionRedemption[]
+
+  @@index([tenantId, active])
+  @@map("promotions")
+}
+
+model PromotionRedemption {
+  id           String   @id @default(cuid())
+  promotionId  String
+  saleId       String?
+  orderId      String?
+  memberPhone  String?
+  discount     Float
+  createdAt    DateTime @default(now())
+
+  promotion Promotion @relation(fields: [promotionId], references: [id])
+
+  @@index([promotionId])
+  @@map("promotion_redemptions")
+}
+
+// ============== Members/CRM ==============
+
+model Member {
+  id           String   @id @default(cuid())
+  tenantId     String
+  phone        String
+  name         String
+  email        String?
+  points       Int      @default(0)
+  totalSpent   Float    @default(0)
+  visitCount   Int      @default(0)
+  tier         String   @default("MEMBER") // MEMBER | SILVER | GOLD | PLATINUM
+  birthday     DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pointsHistory PointsHistory[]
+
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@map("members")
+}
+
+model PointsHistory {
+  id        String   @id @default(cuid())
+  memberId  String
+  type      String   // EARN | REDEEM | ADJUST
+  points    Int
+  reason    String?
+  saleId    String?
+  createdAt DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@map("points_history")
+}
+
+// ============== Inventory Lots (สำหรับ FIFO + expiry) ==============
+
+model InventoryLot {
+  id         String   @id @default(cuid())
+  tenantId   String
+  productId  String
+  lotCode    String?
+  quantity   Float
+  remaining  Float
+  cost       Float
+  receivedAt DateTime @default(now())
+  expiresAt  DateTime?
+  status     String   @default("ACTIVE") // ACTIVE | EXPIRED | CONSUMED
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([tenantId, productId])
+  @@index([expiresAt])
+  @@map("inventory_lots")
+}
+
+// ============== Orders (Tablet/Customer ordering) ==============
+
+model Order {
+  id              String   @id @default(cuid())
+  tenantId        String
+  orderNo         String   @unique
+  tableId         String?
+  tableNo         String?  // เก็บไว้เพื่อ backward compat
+  source          String   @default("DINE_IN") // DINE_IN | TAKEAWAY | LINEMAN | GRAB | SHOPEE
+  externalId      String?  // เลขออเดอร์จาก platform ภายนอก
+  customerName    String?
+  customerPhone   String?
+  customerAddress String?
+  deliveryFee     Decimal  @default(0) @db.Decimal(12, 2)
+  note            String?
+  total           Decimal  @default(0) @db.Decimal(12, 2)
+  status          String   @default("PENDING") // PENDING | PREPARING | READY | COMPLETED | CANCELLED | PAID
+  paidAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table  Table?     @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  items  OrderItem[]
+
+  @@index([tenantId, source])
+  @@index([tableId])
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String
+  productName String
+  qty         Int
+  price       Decimal @db.Decimal(12, 2)
+  note        String?
+  stationId   String?
+  status      String  @default("PENDING") // PENDING | PREPARING | READY | SERVED
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  station Station? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([stationId, status])
+  @@map("order_items")
+}
+
+// ============== Suppliers & Purchases ==============
+
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchases Purchase[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+model Purchase {
+  id         String   @id @default(cuid())
+  tenantId   String
+  supplierId String
+  userId     String
+  reference  String?
+  total      Float
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  user     User           @relation(fields: [userId], references: [id])
+  items    PurchaseItem[]
+
+  @@index([tenantId, createdAt])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String @id @default(cuid())
+  purchaseId String
+  productId  String
+  quantity   Float
+  cost       Float
+  total      Float
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@index([purchaseId])
+  @@map("purchase_items")
+}
+
+// ============== Tax & Discounts ==============
+
+model Tax {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  rate      Float
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("taxes")
+}
+
+model Discount {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  type      String // PERCENT | FIXED
+  value     Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("discounts")
+}
+
+// ============== Audit ==============
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  String? // JSON string
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
