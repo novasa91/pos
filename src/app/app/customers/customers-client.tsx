@@ -63,6 +63,7 @@ export function CustomersClient({
         }
         setEditing(null);
         setCreating(false);
+        if (typeof window !== "undefined") window.location.reload();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }
@@ -75,6 +76,7 @@ export function CustomersClient({
       try {
         await deleteCustomer(c.id);
         toast.success("ลบแล้ว");
+        if (typeof window !== "undefined") window.location.reload();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }

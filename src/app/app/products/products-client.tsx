@@ -98,6 +98,7 @@ export function ProductsClient({
         }
         setEditing(null);
         setCreating(false);
+        if (typeof window !== "undefined") window.location.reload();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }
@@ -110,6 +111,7 @@ export function ProductsClient({
       try {
         await deleteProduct(p.id);
         toast.success("ลบแล้ว");
+        if (typeof window !== "undefined") window.location.reload();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }

@@ -34,7 +34,10 @@ export async function createSale(input: CreateSaleInput) {
   const ctx = await requireTenant();
   const parsed = createSaleSchema.parse(input);
 
-  return await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  // Use a longer interactive-transaction timeout because the default 5s
+  // is too short on Vercel (serverless cold start + SQLite write latency).
+  return await prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
     // 1. Validate stock
     const productIds = parsed.items.map((i) => i.productId);
     const products = await tx.product.findMany({
@@ -172,7 +175,9 @@ export async function createSale(input: CreateSaleInput) {
     revalidatePath("/app/reports");
 
     return sale;
-  });
+    },
+    { timeout: 15000, maxWait: 10000 },
+  );
 }
 
 function round2(n: number): number {
