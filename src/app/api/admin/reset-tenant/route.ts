@@ -45,16 +45,22 @@ export async function POST(req: NextRequest) {
   const keepTables = new URL(req.url).searchParams.get("keepTables") === "true";
 
   const result = await prisma.$transaction(async (tx) => {
-    // 1) Sales: delete payments and items first (FK), then the sale.
-    await tx.payment.deleteMany({
-      where: { sale: { tenantId: ctx.tenant.id } },
-    });
+    // 1) Customer (online) orders and their items.
     await tx.orderItem.deleteMany({
       where: { order: { tenantId: ctx.tenant.id } },
     });
+    await tx.order.deleteMany({ where: { tenantId: ctx.tenant.id } });
+
+    // 2) Sales: delete payments and items first (FK), then the sale.
+    await tx.salePayment.deleteMany({
+      where: { sale: { tenantId: ctx.tenant.id } },
+    });
+    await tx.saleItem.deleteMany({
+      where: { sale: { tenantId: ctx.tenant.id } },
+    });
     await tx.sale.deleteMany({ where: { tenantId: ctx.tenant.id } });
 
-    // 2) Purchases.
+    // 3) Purchases.
     await tx.purchaseItem.deleteMany({
       where: { purchase: { tenantId: ctx.tenant.id } },
     });
@@ -88,8 +94,6 @@ export async function POST(req: NextRequest) {
     return {
       sales: saleCount,
       products: products.length,
-      customers: await tx.customer.count({ where: { tenantId: ctx.tenant.id } }),
-      employees: await tx.employee.count({ where: { tenantId: ctx.tenant.id } }),
       tables: tablesDeleted,
       categories: categories.count,
     };
