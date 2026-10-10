@@ -190,15 +190,16 @@ export function DashboardShell({
             </DropdownMenu>
           )}
           <DropdownMenu>
-            <DropdownMenuTrigger>
-              <Button variant="ghost" className="ml-2 h-9 w-9 rounded-full p-0 relative group">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] opacity-0 group-hover:opacity-100 transition-opacity duration-200 -m-0.5" />
-                <Avatar className="h-9 w-9 relative">
-                  <AvatarFallback className="bg-gradient-to-br from-[#7c3aed]/20 to-[#ec4899]/20 text-[#5b21b6] font-semibold text-sm">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
+            <DropdownMenuTrigger
+              className="ml-2 h-9 w-9 rounded-full p-0 relative group overflow-hidden inline-flex items-center justify-center hover:bg-muted"
+              aria-label="User menu"
+            >
+              <span className="absolute inset-0 rounded-full bg-gradient-to-br from-[#a78bfa] to-[#7c3aed] opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+              <Avatar className="h-9 w-9 relative">
+                <AvatarFallback className="bg-gradient-to-br from-[#7c3aed]/20 to-[#ec4899]/20 text-[#5b21b6] font-semibold text-sm">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
