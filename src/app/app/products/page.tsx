@@ -24,6 +24,7 @@ export default async function ProductsPage() {
         lowStockThreshold: p.lowStockThreshold,
         categoryId: p.categoryId,
         categoryName: p.category?.name ?? null,
+        imageUrl: p.imageUrl,
         isActive: p.isActive,
         trackStock: p.trackStock,
       }))}
