@@ -409,7 +409,7 @@ function ProductForm({
             <input type="hidden" name="categoryId" value={categoryId} />
             <Select
               value={categoryId}
-              onValueChange={(v) => setCategoryId(v)}
+              onValueChange={(v) => setCategoryId(v ?? "")}
             >
               <SelectTrigger>
                 <SelectValue placeholder="เลือกหมวดหมู่">
