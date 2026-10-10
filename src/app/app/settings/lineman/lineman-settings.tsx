@@ -5,10 +5,19 @@ import { Bike, Copy, Check, ExternalLink, Webhook, Code, Bell, FileText, Play } 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-export function LinemanSettings({ slug, shopName }: { slug: string; shopName: string }) {
+export function LinemanSettings({
+  slug,
+  shopName,
+  origin,
+}: {
+  slug: string;
+  shopName: string;
+  origin: string;
+}) {
   const [copied, setCopied] = useState<string | null>(null);
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://pos-cloud.vercel.app";
+  // origin is provided by the server to avoid hydration mismatch.
+  const baseUrl = origin || "";
   const webhookUrl = `${baseUrl}/api/delivery`;
   const samplePayload = `{
   "orderId": "LM123456",

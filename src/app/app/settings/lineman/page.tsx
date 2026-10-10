@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { requireTenant } from "@/lib/tenant";
 import { prisma } from "@/lib/db";
 import { LinemanSettings } from "./lineman-settings";
@@ -6,6 +7,10 @@ import { BackButton } from "@/components/back-button";
 
 export default async function LinemanSettingsPage() {
   const ctx = await requireTenant();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : "";
   return (
     <div>
       <div className="mx-auto max-w-3xl px-6 pt-6">
@@ -18,6 +23,7 @@ export default async function LinemanSettingsPage() {
       <LinemanSettings
         slug={ctx.tenant.slug}
         shopName={ctx.tenant.name}
+        origin={origin}
       />
     </div>
   );

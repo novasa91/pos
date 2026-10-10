@@ -26,10 +26,12 @@ type Table = {
 export function TablesView({
   slug,
   shopName,
+  origin,
   initialTables,
 }: {
   slug: string;
   shopName: string;
+  origin: string;
   initialTables: Table[];
 }) {
   const [tables, setTables] = useState<Table[]>(initialTables);
@@ -256,7 +258,15 @@ export function TablesView({
 
       {/* QR Modal */}
       {qrTable && (
-        <QrModal table={qrTable} slug={slug} shopName={shopName} onClose={() => setQrTable(null)} onCopied={() => setCopied(true)} copied={copied} />
+        <QrModal
+          table={qrTable}
+          slug={slug}
+          origin={origin}
+          shopName={shopName}
+          onClose={() => setQrTable(null)}
+          onCopied={() => setCopied(true)}
+          copied={copied}
+        />
       )}
 
       {/* Edit Modal */}
@@ -271,8 +281,26 @@ export function TablesView({
   );
 }
 
-function QrModal({ table, slug, shopName, onClose, onCopied, copied }: { table: Table; slug: string; shopName: string; onClose: () => void; onCopied: () => void; copied: boolean }) {
-  const orderUrl = typeof window !== "undefined" ? `${window.location.origin}/order/${slug}?table=${table.number}` : `/order/${slug}?table=${table.number}`;
+function QrModal({
+  table,
+  slug,
+  origin,
+  shopName,
+  onClose,
+  onCopied,
+  copied,
+}: {
+  table: Table;
+  slug: string;
+  origin: string;
+  shopName: string;
+  onClose: () => void;
+  onCopied: () => void;
+  copied: boolean;
+}) {
+  const orderUrl = origin
+    ? `${origin}/order/${slug}?table=${table.number}`
+    : `/order/${slug}?table=${table.number}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=2&data=${encodeURIComponent(orderUrl)}`;
 
   function copy() {

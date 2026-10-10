@@ -5,10 +5,20 @@ import { QrCode, Copy, Download, Smartphone, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
-export function QrCodeView({ shopName, slug }: { shopName: string; slug: string }) {
+export function QrCodeView({
+  shopName,
+  slug,
+  origin,
+}: {
+  shopName: string;
+  slug: string;
+  origin: string;
+}) {
   const [copied, setCopied] = useState(false);
-  const orderUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/order/${slug}`
+  // origin is provided by the server so the URL is the same on both sides
+  // (no hydration mismatch). Falls back to a relative path if absent.
+  const orderUrl = origin
+    ? `${origin}/order/${slug}`
     : `/order/${slug}`;
 
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=2&data=${encodeURIComponent(orderUrl)}`;
