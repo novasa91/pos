@@ -5,30 +5,16 @@ import { requireTenant } from "@/lib/tenant";
 /**
  * Reset the current tenant to a clean, "new user" state.
  *
- * Wipes:
- *   - All sales (and their items/payments)
- *   - All purchase orders (and their items)
- *   - All customers
- *   - All employees
- *   - All tables
- *   - All categories EXCEPT the ones that are referenced by products
- *     (we re-create the ones that are still referenced, to satisfy
- *     the foreign key, then remove the rest)
- *   - All products (and stock adjustments)
+ * Wipes: orders, sales, purchases, customers, employees, tables, products,
+ * categories. Preserves tenant / user / subscription / shop settings.
  *
- * Preserves:
- *   - The tenant itself
- *   - The subscription
- *   - The user / membership
- *   - The shop QR settings (PromptPay, LINE, etc.)
- *
- * Use only on the freshly-seeded demo tenant. Refuses to run on a tenant
- * with zero products AND zero sales (nothing to clean).
+ * Run sequentially (not in a single $transaction) to avoid Vercel's
+ * 10s function limit on slow SQLite writes, and so that a single
+ * statement failure surfaces immediately.
  */
 export async function POST(req: NextRequest) {
   const ctx = await requireTenant();
 
-  // Refuse if there's nothing to clean (avoid running on a brand-new account).
   const [productCount, saleCount] = await Promise.all([
     prisma.product.count({ where: { tenantId: ctx.tenant.id } }),
     prisma.sale.count({ where: { tenantId: ctx.tenant.id } }),
@@ -40,64 +26,82 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Optional ?keepTables=true preserves the QR table grid for shops
-  // that are already using it for live customers.
   const keepTables = new URL(req.url).searchParams.get("keepTables") === "true";
+  const counts: Record<string, number> = {};
 
-  const result = await prisma.$transaction(async (tx) => {
-    // 1) Customer (online) orders and their items.
-    await tx.orderItem.deleteMany({
-      where: { order: { tenantId: ctx.tenant.id } },
-    });
-    await tx.order.deleteMany({ where: { tenantId: ctx.tenant.id } });
+  try {
+    // 1) Customer (online) orders: items first, then orders.
+    counts.orderItems = (
+      await prisma.orderItem.deleteMany({
+        where: { order: { tenantId: ctx.tenant.id } },
+      })
+    ).count;
+    counts.orders = (
+      await prisma.order.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
-    // 2) Sales: delete payments and items first (FK), then the sale.
-    await tx.salePayment.deleteMany({
-      where: { sale: { tenantId: ctx.tenant.id } },
-    });
-    await tx.saleItem.deleteMany({
-      where: { sale: { tenantId: ctx.tenant.id } },
-    });
-    await tx.sale.deleteMany({ where: { tenantId: ctx.tenant.id } });
+    // 2) Sales: payments + items first, then sales.
+    counts.salePayments = (
+      await prisma.salePayment.deleteMany({
+        where: { sale: { tenantId: ctx.tenant.id } },
+      })
+    ).count;
+    counts.saleItems = (
+      await prisma.saleItem.deleteMany({
+        where: { sale: { tenantId: ctx.tenant.id } },
+      })
+    ).count;
+    counts.sales = (
+      await prisma.sale.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
     // 3) Purchases.
-    await tx.purchaseItem.deleteMany({
-      where: { purchase: { tenantId: ctx.tenant.id } },
-    });
-    await tx.purchase.deleteMany({ where: { tenantId: ctx.tenant.id } });
+    counts.purchaseItems = (
+      await prisma.purchaseItem.deleteMany({
+        where: { purchase: { tenantId: ctx.tenant.id } },
+      })
+    ).count;
+    counts.purchases = (
+      await prisma.purchase.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
-    // 3) Customers and employees.
-    await tx.customer.deleteMany({ where: { tenantId: ctx.tenant.id } });
-    await tx.employee.deleteMany({ where: { tenantId: ctx.tenant.id } });
+    // 4) Customers, employees.
+    counts.customers = (
+      await prisma.customer.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
+    counts.employees = (
+      await prisma.employee.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
-    // 4) Tables (unless caller asked to keep them).
-    let tablesDeleted = 0;
+    // 5) Tables (unless caller asked to keep them).
     if (!keepTables) {
-      const res = await tx.table.deleteMany({ where: { tenantId: ctx.tenant.id } });
-      tablesDeleted = res.count;
+      counts.tables = (
+        await prisma.table.deleteMany({ where: { tenantId: ctx.tenant.id } })
+      ).count;
+    } else {
+      counts.tables = 0;
     }
 
-    // 5) Products (cascades to image references via app).
-    const products = await tx.product.findMany({
-      where: { tenantId: ctx.tenant.id },
-      select: { id: true },
-    });
-    if (products.length > 0) {
-      await tx.product.deleteMany({ where: { tenantId: ctx.tenant.id } });
-    }
+    // 6) Products.
+    counts.products = (
+      await prisma.product.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
-    // 6) Categories.
-    const categories = await tx.category.deleteMany({
-      where: { tenantId: ctx.tenant.id },
-    });
+    // 7) Categories.
+    counts.categories = (
+      await prisma.category.deleteMany({ where: { tenantId: ctx.tenant.id } })
+    ).count;
 
-    return {
-      sales: saleCount,
-      products: products.length,
-      tables: tablesDeleted,
-      categories: categories.count,
-    };
-  });
-
-  return NextResponse.json({ ok: true, removed: result });
+    return NextResponse.json({ ok: true, removed: counts });
+  } catch (err) {
+    console.error("[reset-tenant] failed:", err);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        partialRemoved: counts,
+      },
+      { status: 500 },
+    );
+  }
 }
