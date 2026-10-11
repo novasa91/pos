@@ -57,22 +57,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { orderNo, action, itemId, reason, items } = await req.json();
-  if (!orderNo) {
-    return NextResponse.json({ error: "Missing orderNo" }, { status: 400 });
-  }
+  const body = await req.json();
+  const { orderNo, action, itemId, reason, items } = body;
 
-  if (action === "confirm-payment") {
-    await prisma.order.update({
-      where: { orderNo },
-      data: { status: "PREPARING" },
-    });
-    return NextResponse.json({ success: true, message: "ยืนยันการชำระเงิน ส่งเข้าครัวแล้ว" });
-  }
-
+  // Handle status update first because the kitchen page sends { orderId, action, status }
+  // (not orderNo).
   if (action === "status") {
-    // Update order status from the kitchen page (เริ่มทำ / เสร็จแล้ว / เสิร์ฟแล้ว)
-    const { orderId, status } = await req.json();
+    const { orderId, status } = body;
     if (!orderId || !status) {
       return NextResponse.json(
         { error: "Missing orderId or status" },
@@ -91,6 +82,18 @@ export async function POST(req: NextRequest) {
       data: { status },
     });
     return NextResponse.json({ success: true });
+  }
+
+  if (!orderNo) {
+    return NextResponse.json({ error: "Missing orderNo" }, { status: 400 });
+  }
+
+  if (action === "confirm-payment") {
+    await prisma.order.update({
+      where: { orderNo },
+      data: { status: "PREPARING" },
+    });
+    return NextResponse.json({ success: true, message: "ยืนยันการชำระเงิน ส่งเข้าครัวแล้ว" });
   }
 
   if (action === "void-item" && itemId) {
