@@ -39,14 +39,25 @@ export async function POST() {
     { name: "John Smith", phone: "0833333333", email: "john@example.com", points: 30 },
   ];
 
-  // 1) Categories: upsert by (tenantId, name).
+  // 1) Categories: find-or-create by (tenantId, name).
   const catRecords: Record<string, string> = {};
   for (const c of CATEGORIES) {
-    const cat = await prisma.category.upsert({
-      where: { tenantId_name: { tenantId: ctx.tenant.id, name: c.name } },
-      update: { color: c.color, sortOrder: c.sortOrder },
-      create: { tenantId: ctx.tenant.id, name: c.name, color: c.color, sortOrder: c.sortOrder },
+    const existing = await prisma.category.findFirst({
+      where: { tenantId: ctx.tenant.id, name: c.name },
     });
+    const cat = existing
+      ? await prisma.category.update({
+          where: { id: existing.id },
+          data: { color: c.color, sortOrder: c.sortOrder },
+        })
+      : await prisma.category.create({
+          data: {
+            tenantId: ctx.tenant.id,
+            name: c.name,
+            color: c.color,
+            sortOrder: c.sortOrder,
+          },
+        });
     catRecords[c.name] = cat.id;
   }
 
