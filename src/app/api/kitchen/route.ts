@@ -70,6 +70,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, message: "ยืนยันการชำระเงิน ส่งเข้าครัวแล้ว" });
   }
 
+  if (action === "status") {
+    // Update order status from the kitchen page (เริ่มทำ / เสร็จแล้ว / เสิร์ฟแล้ว)
+    const { orderId, status } = await req.json();
+    if (!orderId || !status) {
+      return NextResponse.json(
+        { error: "Missing orderId or status" },
+        { status: 400 },
+      );
+    }
+    const validStatuses = ["PENDING", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
+    if (!validStatuses.includes(status)) {
+      return NextResponse.json(
+        { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
+        { status: 400 },
+      );
+    }
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { status },
+    });
+    return NextResponse.json({ success: true });
+  }
+
   if (action === "void-item" && itemId) {
     // ยกเลิก item เดียว (ลูกค้าไม่ได้สั่ง) → ลด total + คืน stock
     const item = await prisma.orderItem.findUnique({ where: { id: itemId } });
